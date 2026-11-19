@@ -104,6 +104,23 @@ this was checked on both tasks.
 
 Results, analysis and chosen settings: [reports/trees_summary.md](reports/trees_summary.md).
 
+## k-Nearest Neighbours
+
+`knn.py` is a from-scratch k-NN (NumPy only): euclidean / cosine / manhattan distance,
+majority or 1/distance-weighted voting, ties go to the closest neighbour's class.
+
+```bash
+python knn_experiments.py --all      # full sweep + logs key settings to results/results.csv (~8 min)
+python knn_experiments.py --submit   # backup Kaggle file submission_knn.csv (k-NN only, ~10 s)
+```
+
+The sweep covers raw / normalized features × 3 distances × k = 1, 3, 5, 10, 20, 50, 100, 200
+× majority / weighted voting (96 settings per task). Neighbours are searched once at k = 200 and
+every smaller k is scored from that search, which gives the same predictions as separate fits.
+
+Results, analysis and chosen settings: [reports/knn_summary.md](reports/knn_summary.md).
+Charts: `reports/knn_figures/`.
+
 ### Reproducibility
 
 - Python 3.12.3, numpy 2.5.5, pandas 3.1.1, scikit-learn 1.9.1 (split and metrics only), matplotlib 3.11.2
