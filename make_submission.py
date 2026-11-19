@@ -45,11 +45,12 @@ SETTINGS = {
         "sentiment": {"params": {"max_depth": 5, "criterion": "gini"},
                       "normalize": True, "val_acc": 0.483},
     },
-    # Neural network: add its best settings here once neural_net.py is done, e.g.
-    # "neural_net": {
-    #     "image":     {"params": {...}, "normalize": True, "val_acc": ...},
-    #     "sentiment": {"params": {...}, "normalize": True, "val_acc": ...},
-    # },
+    "neural_net": {
+        "image": {"params": {"hidden": (1024, 256), "dropout": 0.5, "lr": 3e-4,
+                             "weight_decay": 1e-3}, "normalize": True, "val_acc": 0.366},
+        "sentiment": {"params": {"hidden": (512,), "dropout": 0.5, "lr": 3e-4,
+                                 "weight_decay": 1e-3}, "normalize": True, "val_acc": 0.664},
+    },
 }
 
 # Models chosen for the submission. Update after comparing validation accuracy.
