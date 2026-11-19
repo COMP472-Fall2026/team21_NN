@@ -27,7 +27,8 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, classification_report
+from sklearn.metrics import (accuracy_score, classification_report, confusion_matrix, f1_score,
+                             precision_recall_fscore_support)
 from sklearn.model_selection import train_test_split
 
 # ----------------------------------------------------------------- config ---
@@ -136,6 +137,13 @@ def get_split(task, normalize=True):
     return X_tr, X_val, y_tr, y_val
 
 
+def get_val_ids(task):
+    """Validation ids in the same row order as X_val / y_val from get_split."""
+    train_df, _ = load_task(task)
+    val_ids = _val_ids(task, train_df)
+    return train_df.loc[train_df["id"].isin(val_ids), "id"].values
+
+
 def get_full(task, normalize=True):
     """ALL training data + test features (for the final Kaggle model).
 
@@ -162,7 +170,10 @@ def evaluate(model, task, name, params=None, normalize=True, save=True, verbose=
     Saves (when save=True):
       results/results.csv                      one row per run (shared table)
       results/preds/<task>_<name>_<tag>.npy    validation predictions (for error analysis)
+      results/preds/<task>_<name>_<tag>.csv    id, true, pred, correct for each validation row
+      results/class_metrics/<task>_<name>_<tag>.csv  per-class precision, recall, F1, support
       results/cm/<task>_<name>_<tag>.png       confusion matrix plot
+      results/cm/<task>_<name>_<tag>.csv       confusion matrix counts (rows true, columns predicted)
     Returns a dict with the metrics.
     """
     _check_task(task)
@@ -185,7 +196,14 @@ def evaluate(model, task, name, params=None, normalize=True, save=True, verbose=
     val_acc = accuracy_score(y_val, val_pred)
     macro_f1 = f1_score(y_val, val_pred, average="macro")
     n_classes = TASKS[task]["n_classes"]
-    cm = confusion_matrix(y_val, val_pred, labels=list(range(n_classes)))
+    labels = list(range(n_classes))
+    cm = confusion_matrix(y_val, val_pred, labels=labels)
+    precision, recall, f1, support = precision_recall_fscore_support(
+        y_val, val_pred, labels=labels, zero_division=0)
+    class_metrics = pd.DataFrame({
+        "label": labels, "precision": precision, "recall": recall, "f1": f1, "support": support})
+    if task == "sentiment":
+        class_metrics.insert(1, "name", SENTIMENT_NAMES)
 
     row = {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
@@ -208,6 +226,15 @@ def evaluate(model, task, name, params=None, normalize=True, save=True, verbose=
         )
         os.makedirs(os.path.join(RESULTS_DIR, "preds"), exist_ok=True)
         np.save(os.path.join(RESULTS_DIR, "preds", f"{task}_{name}_{tag}.npy"), val_pred)
+        pd.DataFrame({"id": get_val_ids(task), "true": y_val, "pred": val_pred,
+                      "correct": y_val == val_pred}).to_csv(
+            os.path.join(RESULTS_DIR, "preds", f"{task}_{name}_{tag}.csv"), index=False)
+        os.makedirs(os.path.join(RESULTS_DIR, "class_metrics"), exist_ok=True)
+        class_metrics.to_csv(
+            os.path.join(RESULTS_DIR, "class_metrics", f"{task}_{name}_{tag}.csv"), index=False)
+        os.makedirs(os.path.join(RESULTS_DIR, "cm"), exist_ok=True)
+        pd.DataFrame(cm, index=pd.Index(labels, name="true"), columns=labels).to_csv(
+            os.path.join(RESULTS_DIR, "cm", f"{task}_{name}_{tag}.csv"))
         _plot_cm(cm, task, f"{name} ({tag})",
                  os.path.join(RESULTS_DIR, "cm", f"{task}_{name}_{tag}.png"))
 
@@ -217,7 +244,7 @@ def evaluate(model, task, name, params=None, normalize=True, save=True, verbose=
         if task == "sentiment":
             print(classification_report(y_val, val_pred, target_names=SENTIMENT_NAMES, digits=3, zero_division=0))
 
-    return {**row, "confusion_matrix": cm, "val_pred": val_pred}
+    return {**row, "confusion_matrix": cm, "class_metrics": class_metrics, "val_pred": val_pred}
 
 
 def _tag(params, normalize):
