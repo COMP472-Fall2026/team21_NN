@@ -46,7 +46,10 @@ Each `evaluate` call prints train/val accuracy, macro-F1 and timing, and saves:
 |---|---|
 | `results/results.csv` | one row per run, the shared comparison table |
 | `results/cm/<task>_<model>_<params>.png` | confusion matrix plot |
+| `results/cm/<task>_<model>_<params>.csv` | confusion matrix counts (rows true, columns predicted) |
+| `results/class_metrics/<task>_<model>_<params>.csv` | per-class precision, recall, F1 and support |
 | `results/preds/<task>_<model>_<params>.npy` | validation predictions, used for error analysis |
+| `results/preds/<task>_<model>_<params>.csv` | `id, true, pred, correct` per validation row, to find examples several models get wrong |
 
 **Always pass `params`** with the hyperparameters you used, so the rows in the table can be told apart.
 
@@ -66,6 +69,43 @@ Pick the model using **validation accuracy**, not the Kaggle leaderboard.
 
 ## Other helpers
 
+- `get_val_ids(task)` gives the validation ids in the same order as `X_val`
 - `get_split(task)` gives `X_train, X_val, y_train, y_val` directly (e.g. for the NN's early stopping or clustering)
 - `top_confusions(cm, k=10)` lists the most-confused (true, predicted, count) class pairs
 - `set_seed()` seeds python, numpy and torch
+
+## Decision tree and random forest
+
+`decision_tree.py` and `random_forest.py` are from-scratch implementations (NumPy only).
+`python decision_tree.py` or `python random_forest.py` evaluates one configuration on both tasks.
+
+The hyperparameter sweep changes one setting at a time from a base configuration
+(gini, `min_samples_split=2`, `min_samples_leaf=1`; forest: `sqrt` features per split):
+
+| Model | Setting | Values |
+|---|---|---|
+| Decision tree | max depth | 5, 10, 20, None |
+| Decision tree | criterion | gini, entropy |
+| Decision tree | min samples to split | 2, 20 |
+| Decision tree | min samples per leaf | 1, 10 |
+| Random forest | number of trees | 10, 50, 100 |
+| Random forest | max depth | 10, 20, None |
+| Random forest | features per split | sqrt(d), log2(d) |
+
+```bash
+python sweep_trees.py --all        # 16 jobs in parallel, one process each (--workers N to limit)
+python sweep_trees.py --summary    # writes results/sweep/summary.md
+```
+
+Each decision tree job fits one unlimited-depth tree and evaluates it cut off at
+each depth. Each forest's tree-count results come from the first 10, 50 and 100
+trees of one 100-tree forest. Both give the same predictions as separate fits;
+this was checked on both tasks.
+
+Results, analysis and chosen settings: [reports/trees_summary.md](reports/trees_summary.md).
+
+### Reproducibility
+
+- Python 3.12.3, numpy 2.5.5, pandas 3.1.1, scikit-learn 1.9.1 (split and metrics only), matplotlib 3.11.2
+- Seed 42 for the split (`splits/`) and as `random_state` for every tree and forest
+- Timings are from one Windows 11 laptop with 16 logical cores, with up to 16 jobs running at once
