@@ -57,6 +57,15 @@ Train accuracy vs val accuracy is how we show overfitting (e.g. a deep tree with
 
 ## Making a Kaggle submission
 
+```bash
+python make_submission.py --list                                  # models and their chosen settings
+python make_submission.py                                         # default models (see DEFAULT)
+python make_submission.py --image knn --sentiment random_forest   # pick per task
+```
+
+Retrains the chosen model for each task on all training rows, writes `submission.csv`, and records
+the choice in `results/submissions_log.csv`. Or by hand:
+
 ```python
 from common import fit_full_and_predict, make_submission
 

@@ -1,0 +1,6 @@
+# Python 3.12
+numpy==2.5.5
+pandas==3.1.1
+scikit-learn==1.9.1   # train/validation split and metrics only, no models
+matplotlib==3.11.2
+torch                 # neural network only
