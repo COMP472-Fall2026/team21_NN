@@ -1,16 +1,10 @@
 """
-Feed-forward neural network (MLP) for both tasks, in PyTorch.
+Neural network (MLP) for the image and sentiment tasks.
 
-    python neural_net.py                      # one run per task with the default settings
-    python neural_net.py --task image         # one task only
-    python neural_net.py --sweep              # hyperparameter sweep (lr, hidden, dropout, weight decay)
-    python neural_net.py --curves             # train vs validation loss plots -> reports/nn_figures/
-
-Plugs into common.py like the other models: NeuralNet has fit(X, y) and predict(X),
-both on numpy arrays. Early stopping uses a 10% hold-out taken from the training
-rows it is given, so the shared validation split is never used for training decisions.
-
-References: PyTorch "Learn the Basics" tutorials and learnpytorch.io chapter 02.
+Usage:
+    python neural_net.py            run both tasks with the best settings
+    python neural_net.py --sweep    hyperparameter search
+    python neural_net.py --curves   plot train vs validation loss
 """
 
 import argparse
@@ -26,14 +20,13 @@ from sklearn.model_selection import train_test_split
 
 from common import BASE_DIR, SEED, evaluate, get_split, set_seed
 
-# A network this small runs as fast on CPU as on the Mac GPU (mps), and CPU is reproducible.
+# cpu is fast enough for this size and gives reproducible results
 DEVICE = "cpu"
 FIG_DIR = os.path.join(BASE_DIR, "reports", "nn_figures")
 
 
-# --------------------------------------------------------------- network ---
 class MLP(nn.Module):
-    """input -> [Linear -> ReLU -> Dropout] per hidden size -> Linear -> class scores."""
+    """Linear + ReLU + Dropout for each hidden layer, then a final Linear layer."""
 
     def __init__(self, input_dim, n_classes, hidden=(256, 64), dropout=0.0):
         super().__init__()
@@ -42,7 +35,7 @@ class MLP(nn.Module):
         for h in hidden:
             layers += [nn.Linear(prev, h), nn.ReLU(), nn.Dropout(dropout)]
             prev = h
-        # No softmax: CrossEntropyLoss applies it internally to the raw scores (logits).
+        # no softmax here, CrossEntropyLoss does it
         layers.append(nn.Linear(prev, n_classes))
         self.net = nn.Sequential(*layers)
 
@@ -50,21 +43,16 @@ class MLP(nn.Module):
         return self.net(x)
 
 
-# ------------------------------------------------------- fit/predict API ---
 class NeuralNet:
-    """fit/predict wrapper so common.evaluate() and make_submission.py can use the MLP.
+    """Wraps the MLP with fit/predict so it works with common.py.
 
-    hidden       : sizes of the hidden layers, e.g. (256, 64)
-    dropout      : fraction of hidden units switched off at random during training
-    lr           : learning rate for Adam
-    weight_decay : L2 penalty on the weights (regularization)
-    epochs       : maximum number of passes over the training data
-    patience     : stop after this many epochs without the hold-out loss improving
+    hidden: hidden layer sizes, dropout: dropout rate, lr: learning rate,
+    weight_decay: L2 penalty, patience: epochs to wait before early stopping
     """
 
     def __init__(self, task=None, hidden=(256, 64), dropout=0.3, lr=1e-3, weight_decay=1e-4,
                  epochs=100, batch_size=128, patience=8, holdout=0.1, verbose=False):
-        self.task = task  # unused; make_submission.py passes it
+        self.task = task  # not used, make_submission.py passes it in
         self.hidden = tuple(hidden)
         self.dropout = dropout
         self.lr = lr
@@ -80,7 +68,7 @@ class NeuralNet:
         X_fit, X_hold, y_fit, y_hold = train_test_split(
             X, y, test_size=self.holdout, stratify=y, random_state=SEED)
 
-        # numpy -> tensors (features float32, labels int64 as CrossEntropyLoss needs)
+        # convert to tensors (labels need to be int64 for CrossEntropyLoss)
         X_fit_t, y_fit_t = torch.from_numpy(X_fit).float(), torch.from_numpy(y_fit).long()
         X_hold_t, y_hold_t = torch.from_numpy(X_hold).float(), torch.from_numpy(y_hold).long()
         loader = DataLoader(TensorDataset(X_fit_t, y_fit_t), batch_size=self.batch_size,
@@ -96,7 +84,7 @@ class NeuralNet:
         best_loss, best_state, bad_epochs = float("inf"), None, 0
 
         for epoch in range(self.epochs):
-            # --- train one epoch: forward, loss, backward, step
+            # train
             self.model.train()
             total = 0.0
             for xb, yb in loader:
@@ -108,7 +96,7 @@ class NeuralNet:
                 total += loss.item() * len(xb)
             train_loss = total / len(X_fit_t)
 
-            # --- check the hold-out set (no dropout, no gradients)
+            # check loss on the hold-out set
             self.model.eval()
             with torch.no_grad():
                 logits = self.model(X_hold_t.to(DEVICE))
@@ -122,7 +110,7 @@ class NeuralNet:
                 print(f"  epoch {epoch + 1:3d}  train loss {train_loss:.4f}  "
                       f"hold-out loss {hold_loss:.4f}  hold-out acc {hold_acc:.4f}")
 
-            # --- early stopping: keep the weights from the best hold-out epoch
+            # early stopping, keep the best weights
             if hold_loss < best_loss - 1e-4:
                 best_loss, bad_epochs = hold_loss, 0
                 best_state = copy.deepcopy(self.model.state_dict())
@@ -142,8 +130,7 @@ class NeuralNet:
         return logits.argmax(1).cpu().numpy()
 
 
-# ----------------------------------------------------------- experiments ---
-# Best settings found so far per task (from manual probing; confirm with --sweep).
+# best settings we found for each task
 DEFAULTS = {
     "image": {"hidden": (1024, 256), "dropout": 0.5, "lr": 3e-4, "weight_decay": 1e-3},
     "sentiment": {"hidden": (512,), "dropout": 0.5, "lr": 3e-4, "weight_decay": 1e-3},
@@ -158,7 +145,7 @@ SWEEP = {
 
 
 def run(task, **params):
-    """One evaluate() run, logged to results/results.csv as model 'neural_net'."""
+    """Train and evaluate one model, results go to results/results.csv."""
     p = {**DEFAULTS[task], **params}
     model = NeuralNet(**p)
     logged = {**p, "hidden": "-".join(map(str, p["hidden"]))}
@@ -168,7 +155,7 @@ def run(task, **params):
 
 
 def sweep(task):
-    """Full grid over SWEEP (108 runs per task, roughly 10-20 min per task on CPU)."""
+    """Try every combination in SWEEP (takes ~15 min per task)."""
     keys = list(SWEEP)
     results = []
     for values in itertools.product(*(SWEEP[k] for k in keys)):
@@ -182,7 +169,7 @@ def sweep(task):
 
 
 def curves(task):
-    """Train vs validation loss per epoch, without and with regularization (overfitting evidence)."""
+    """Plot train vs validation loss with and without regularization."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -194,7 +181,7 @@ def curves(task):
     }
     fig, axes = plt.subplots(1, len(configs), figsize=(11, 4), sharey=True)
     for ax, (label, extra) in zip(axes, configs.items()):
-        # Fixed number of epochs with no early stopping, so the overfitting is visible.
+        # no early stopping here so we can see the overfitting
         model = NeuralNet(**{**DEFAULTS[task], **extra, "epochs": 60, "patience": 10**9}).fit(X_tr, y_tr)
         h = model.history
         ax.plot(range(1, len(h["train_loss"]) + 1), h["train_loss"], label="train loss")
