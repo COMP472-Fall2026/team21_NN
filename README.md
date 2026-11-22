@@ -10,6 +10,7 @@ feature vectors from the COMP472 Kaggle competition, plus a k-Means clustering e
 | `decision_tree.py`, `random_forest.py`, `sweep_trees.py` | decision tree, random forest and their sweep |
 | `neural_net.py` | feed-forward neural network (PyTorch) and its sweep |
 | `clustering.py` | k-Means clustering experiment |
+| `error_analysis.py` | compares the mistakes of all four models |
 | `make_submission.py` | builds the final Kaggle `submission.csv` |
 | `reports/` | results summaries and figures for each part |
 
@@ -174,6 +175,20 @@ python clustering.py --quick    # fewer k values and restarts (~30 s)
 
 Results and analysis: [reports/clustering_summary.md](reports/clustering_summary.md).
 Figures: `reports/clustering_figures/`.
+
+## Error analysis
+
+`error_analysis.py` compares the best run of every model on the shared validation set: per-class
+recall and precision, the most-confused classes, whether the models make the same mistakes, and
+whether the neural network fixes the simpler models' errors. It reads the prediction files saved by
+`common.evaluate()`, so run the model experiments first.
+
+```bash
+python error_analysis.py
+```
+
+Results and analysis: [reports/error_analysis_summary.md](reports/error_analysis_summary.md).
+Figures: `reports/error_analysis_figures/`.
 
 ## Final Kaggle submission
 
