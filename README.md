@@ -1,6 +1,19 @@
-# COMP472 shared testing setup
+# COMP472 Project: image and sentiment classification
 
-Everyone uses `common.py` so all models get the same data, the same 80/20 split and the same metrics.
+k-NN, decision tree, random forest and neural network classifiers on the image and sentiment
+feature vectors from the COMP472 Kaggle competition, plus a k-Means clustering experiment.
+
+| File | What it does |
+|---|---|
+| `common.py` | shared data loading, 80/20 split, evaluation and submission helpers |
+| `knn.py`, `knn_experiments.py` | k-NN and its hyperparameter sweep |
+| `decision_tree.py`, `random_forest.py`, `sweep_trees.py` | decision tree, random forest and their sweep |
+| `neural_net.py` | feed-forward neural network (PyTorch) and its sweep |
+| `clustering.py` | k-Means clustering experiment |
+| `make_submission.py` | builds the final Kaggle `submission.csv` |
+| `reports/` | results summaries and figures for each part |
+
+All models use `common.py`, so they get the same data, the same 80/20 split and the same metrics.
 
 ## Setup (once)
 
@@ -130,8 +143,51 @@ every smaller k is scored from that search, which gives the same predictions as 
 Results, analysis and chosen settings: [reports/knn_summary.md](reports/knn_summary.md).
 Charts: `reports/knn_figures/`.
 
+## Neural network
+
+`neural_net.py` is a feed-forward network in PyTorch: Linear + ReLU + Dropout for each hidden
+layer, then a Linear output layer (50 outputs for images, 3 for sentiment). Trained with Adam and
+cross-entropy loss, batch size 128. Early stopping uses a 10% hold-out taken from the training rows,
+so the shared validation split is never used for training decisions.
+
+```bash
+python neural_net.py            # best settings on both tasks (~20 s on CPU)
+python neural_net.py --sweep    # grid over learning rate, hidden sizes, dropout, weight decay (~15 min per task)
+python neural_net.py --curves   # train vs hold-out loss plots -> reports/nn_figures/
+```
+
+| Task | Hidden layers | Dropout | Learning rate | Weight decay | Val accuracy |
+|---|---|---|---|---|---|
+| Image | 1024, 256 | 0.5 | 3e-4 | 1e-3 | 0.366 |
+| Sentiment | 512 | 0.5 | 3e-4 | 1e-3 | 0.664 |
+
+## Clustering
+
+`clustering.py` is a from-scratch k-Means (NumPy only) with k-means++ initialisation and 5 restarts.
+It runs k = 3 on sentiment and k = 50 on images, sweeps k, and scores how well the clusters match
+the true labels (purity, ARI, NMI).
+
+```bash
+python clustering.py            # full experiment (~10 min)
+python clustering.py --quick    # fewer k values and restarts (~30 s)
+```
+
+Results and analysis: [reports/clustering_summary.md](reports/clustering_summary.md).
+Figures: `reports/clustering_figures/`.
+
+## Final Kaggle submission
+
+k-NN (k = 1, cosine) for images and the neural network for sentiment, chosen on validation accuracy
+(expected score 0.599):
+
+```bash
+python make_submission.py --image knn --sentiment neural_net
+```
+
 ### Reproducibility
 
 - Python 3.12.3, numpy 2.5.5, pandas 3.1.1, scikit-learn 1.9.1 (split and metrics only), matplotlib 3.11.2
-- Seed 42 for the split (`splits/`) and as `random_state` for every tree and forest
+- PyTorch 2.8 for the neural network (runs on CPU, no GPU needed)
+- Seed 42 for the split (`splits/`), as `random_state` for every tree and forest, and for the
+  neural network and k-Means
 - Timings are from one Windows 11 laptop with 16 logical cores, with up to 16 jobs running at once
