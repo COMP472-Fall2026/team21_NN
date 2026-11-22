@@ -1,34 +1,38 @@
-# k-Means clustering: results summary
+# k-Means Clustering
 
-Source data: `results/clustering/` (produced by `python clustering.py`, about 10 min).
-Figures: `reports/clustering_figures/`.
+All numbers below come from `results/clustering/`, which is produced by `python clustering.py`
+(about 10 minutes). The figures are in `reports/clustering_figures/`.
 
 ## 1. Setup
 
-**k-Means** (`clustering.py`, NumPy only).
-- k-means++ initialisation: the first centre is a random point, each next centre is picked with
-  probability proportional to its squared distance from the nearest centre so far.
-- Lloyd iterations: assign every point to its nearest centre, move each centre to the mean of its
-  points, repeat until the total within-cluster squared distance (inertia) improves by less than 1e-6.
-- 5 random restarts, keep the one with the lowest inertia. Seed 42.
-- Distances for a whole batch use one matrix multiply: `||x - c||² = ||x||² + ||c||² - 2 x·c`.
-- **Checked against sklearn's KMeans** (testing only): inertia within 0.2% on both tasks and all
-  preprocessing options, and the label-agreement scores match to 2-3 decimals.
+We wrote k-Means from scratch in NumPy (`clustering.py`). It starts with k-means++ initialisation:
+the first centre is a random point, and each next centre is picked with probability proportional to
+its squared distance from the closest centre so far, which spreads the starting centres out. From
+there it runs the usual Lloyd iterations, assigning every point to its nearest centre and then moving
+each centre to the mean of its points, until the total within-cluster squared distance (the inertia)
+improves by less than 1e-6. We do 5 random restarts with seed 42 and keep the one with the lowest
+inertia. Like our k-NN, the distances for a whole batch come from one matrix multiply using
+`||x - c||² = ||x||² + ||c||² - 2 x·c`.
 
-Data: all labelled training rows (20,000 image, 12,000 sentiment). Labels are only used afterwards
-to score the clusters.
+To verify the implementation, we compared it against sklearn's KMeans (for testing only). The
+inertia came out within 0.2% on both tasks and every preprocessing option, and the agreement scores
+matched to 2 or 3 decimals. This check also caught a bug in our first version, where the stopping
+condition triggered after a single iteration.
 
-Preprocessing compared:
-- `zscore`: each feature standardised (same as the classifiers use)
-- `l2`: each row scaled to length 1, so Euclidean k-Means behaves like clustering by cosine similarity
+We clustered all of the labelled training rows (20,000 images and 12,000 sentiment examples). The
+labels are never used by k-Means; we only use them afterwards to score how well the clusters line up
+with the real classes. We tried two kinds of preprocessing: `zscore`, where each feature is
+standardised the same way the classifiers use, and `l2`, where each row is scaled to length 1 so that
+Euclidean k-Means behaves like clustering by cosine similarity.
 
-Scores (all 0 = no relation to the labels, 1 = clusters are exactly the classes):
-- **Purity**: label each cluster with its most common class, fraction of points that match.
-  Goes up with k on its own, so only compare at the same k.
-- **ARI** (adjusted Rand index): pair-counting agreement, corrected so random clusters score 0.
-- **NMI** (normalised mutual information): how much knowing the cluster tells you about the class.
+We scored the clusters three ways, where 0 means no relation to the labels and 1 means the clusters
+are exactly the classes. Purity labels each cluster with its most common class and counts how many
+points match; it goes up with k on its own, so it only makes sense to compare it at the same k. ARI
+(adjusted Rand index) counts how many pairs of points agree, and it is corrected so random clusters
+score 0. NMI (normalised mutual information) measures how much knowing a point's cluster tells you
+about its class.
 
-## 2. Sentiment: do negative / neutral / positive separate? (k = 3)
+## 2. Sentiment: do negative, neutral and positive separate? (k = 3)
 
 | Preprocessing | Purity | ARI | NMI |
 |---|---|---|---|
@@ -36,7 +40,7 @@ Scores (all 0 = no relation to the labels, 1 = clusters are exactly the classes)
 | l2 | 0.387 | 0.014 | 0.014 |
 | random guess | 0.333 | 0 | 0 |
 
-Cluster vs true label (zscore):
+Here is how the three clusters line up with the true labels (zscore):
 
 | Cluster | Negative | Neutral | Positive | Size | Majority |
 |---|---|---|---|---|---|
@@ -44,16 +48,18 @@ Cluster vs true label (zscore):
 | 1 | 1,346 | 1,635 | 2,053 | 5,034 | positive (41%) |
 | 2 | 2,268 | 1,611 | 1,486 | 5,365 | negative (42%) |
 
-**No, they do not separate naturally.** Each cluster leans slightly towards one sentiment
-(there is one "mostly negative", one "mostly positive" and one small "mostly neutral" cluster),
-but every cluster still contains a large share of all three classes. ARI is 0.02, very close to random.
+The sentiment classes do not separate on their own. Each cluster leans slightly towards one
+sentiment, so we get one mostly negative cluster, one mostly positive and a small mostly neutral one,
+but every cluster still holds a big share of all three classes. An ARI of 0.02 is very close to
+random.
 
-Why: the BERT embeddings were not trained for sentiment. The biggest directions of variation in them
-are things like topic, length and writing style, and k-Means follows those. Sentiment is a smaller
-signal that a supervised model can pick out (the neural net reaches 66% validation accuracy) but
-that does not dominate the distances.
+This is likely due to how the BERT embeddings were produced. They were not trained for
+sentiment, so the biggest directions of variation in them are probably things like topic, length and
+writing style, and those are what k-Means follows. Sentiment is a smaller signal. A supervised model
+can still pick it out (our neural network reaches 66% validation accuracy), but it does not dominate
+the distances.
 
-## 3. Image: do similar objects cluster together? (k = 50)
+## 3. Images: do similar objects cluster together? (k = 50)
 
 | Preprocessing | Purity | ARI | NMI |
 |---|---|---|---|
@@ -61,14 +67,17 @@ that does not dominate the distances.
 | l2 | 0.109 | 0.025 | 0.117 |
 | random guess | 0.020 | 0 | 0 |
 
-Clusters are about 6 times purer than chance, but far from the 50 classes.
+The image clusters are about 6 times purer than chance, but they are still far from matching the 50
+classes.
 
-**How spread out each class is** (zscore): the share of a class that lands in its single biggest cluster.
-- Most cleanly clustered: class 46 (43%), 48 (39%), 2 (38%), 13 (37%), 45 (30%)
-- Most split up: class 35 (7%), 38 (8%), 36 (8%), 0 (8%), 15 (8%), spread over roughly 15 clusters each
+Some classes hold together much better than others. If we look at the share of each class that lands
+in its single biggest cluster, the most cleanly clustered classes are 46 (43%), 48 (39%), 2 (38%),
+13 (37%) and 45 (30%). The most scattered are 35 (7%), 38 (8%), 36 (8%), 0 (8%) and 15 (8%), which
+are each spread over roughly 15 clusters.
 
-**Classes most often grouped together** (classes whose points are spread over the clusters in the
-most similar way, cosine similarity of their cluster histograms):
+To find which classes get grouped together, we compared how each pair of classes is spread across
+the clusters (the cosine similarity of their cluster histograms). These pairs end up together the
+most:
 
 | Class pair | Similarity |
 |---|---|
@@ -80,11 +89,11 @@ most similar way, cosine similarity of their cluster histograms):
 | 24 and 42 | 0.88 |
 | 3 and 4 | 0.88 |
 
-Full lists: `results/clustering/image_k50_per_class_*.csv` and `image_k50_pairs_*.csv`.
+The full lists are in `results/clustering/image_k50_per_class_*.csv` and `image_k50_pairs_*.csv`.
 
-**Link to the classifiers' mistakes.** For each model we took the 25 class pairs it confuses most
-on the validation set and checked how many are also among the 25 pairs k-Means groups together most.
-By chance about 0.5 of 25 would overlap.
+We also examined whether these are the same classes our classifiers mix up. For each model we
+took the 25 class pairs it confuses most on the validation set and checked how many of them are also
+in k-Means' top 25 pairs. By chance, about 0.5 of the 25 would overlap.
 
 | Model | Overlap with k-Means' top 25 pairs | Mean cluster similarity of its 25 most-confused pairs (all pairs: 0.50) |
 |---|---|---|
@@ -92,12 +101,14 @@ By chance about 0.5 of 25 would overlap.
 | Random forest | 7 / 25 | 0.68 |
 | k-NN (k = 1, cosine) | 6 / 25 | 0.62 |
 
-So the classes that k-Means cannot tell apart without labels are largely the same classes the
-classifiers confuse with labels: they really do sit close together in feature space.
+The overlap is far above chance for all three models. The classes k-Means cannot tell apart without
+labels are largely the same ones the classifiers confuse even with labels, which tells us those
+classes really do sit close together in the feature space.
 
 ## 4. Effect of k
 
-Figures: `kmeans_vs_k_sentiment.png`, `kmeans_vs_k_image.png`.
+The plots are `kmeans_vs_k_sentiment.png` and `kmeans_vs_k_image.png`. The tables below use the
+zscore features.
 
 | Sentiment k | 2 | 3 | 4 | 5 | 8 | 10 | 15 | 20 |
 |---|---|---|---|---|---|---|---|---|
@@ -110,23 +121,22 @@ Figures: `kmeans_vs_k_sentiment.png`, `kmeans_vs_k_image.png`.
 | ARI | 0.011 | 0.019 | 0.025 | 0.029 | 0.028 | 0.030 | 0.030 |
 | NMI | 0.054 | 0.098 | 0.123 | 0.133 | 0.141 | 0.155 | 0.176 |
 
-(zscore features.)
-- Purity and NMI keep rising with k, partly because smaller clusters are automatically purer.
-- ARI, which corrects for that, levels off around the true number of classes for images (k = 50 to 100)
-  and peaks around k = 10 for sentiment, then drops. Using more clusters than classes does not
-  uncover a hidden class structure.
-- Inertia falls smoothly with no clear "elbow", another sign that the data has no strong natural
-  grouping at any k.
-- zscore beats l2 slightly on ARI and NMI for both tasks.
+Purity and NMI keep going up as k grows, partly because smaller clusters are
+automatically purer. ARI corrects for this and shows a different pattern: for images it levels off
+around the real number of classes (k = 50 to 100), and for sentiment it peaks around k = 10 and then
+drops. Using more clusters than there are classes does not reveal additional class structure. The
+inertia also falls smoothly with no clear "elbow", which is another sign that the data does not have a
+strong natural grouping at any k. Between the two preprocessing options, zscore was slightly better
+than l2 on ARI and NMI for both tasks.
 
-## 5. Takeaways
+## 5. Conclusions
 
-- Neither feature set separates into its labels without supervision. The class information is
-  there (the classifiers find it) but it is not the dominant structure in the features.
-- Images cluster better than sentiment relative to chance. Some object classes form fairly tight
-  groups, while sentiment barely affects the overall geometry of the BERT embeddings.
-- This matches the classifier results: k-NN with k = 1 works well on images (close neighbours are
-  usually the same class) even though bigger regions mix many classes, which is exactly what
-  k-Means is measuring.
-- Class pairs that k-Means merges are the pairs the classifiers confuse, which is useful input for
-  the error analysis.
+Neither feature set separates into its labels without supervision. The class information is clearly
+there, since the classifiers find it, but it is not the main structure in the features. Images cluster
+noticeably better than sentiment relative to chance; some object classes form fairly tight groups,
+while sentiment barely affects the overall shape of the BERT embeddings.
+
+This also fits with our classifier results. k-NN with k = 1 works well on images because the closest
+neighbour is usually the same class, even though larger regions mix many classes together, and that
+larger-scale mixing is exactly what k-Means picks up on. Finally, the class pairs that k-Means merges
+are the same pairs our classifiers confuse, which feeds directly into the error analysis.
